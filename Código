@@ -1,1 +1,140 @@
+#Se importan los datos en bruto
+datos<-read.csv(file.choose())
 
+#Tratamiento de datos para nuevas variables en porcentaje
+datos$ODV_P<-datos$ODV/datos$Cartera
+datos$P1_14_P<-datos$P_1_14/datos$Cartera
+datos$P15_29_P<-datos$P_15_29/datos$Cartera
+datos$P30_44_P<-datos$P_30_44/datos$Cartera
+datos$P45_59_P<-datos$P_45_59/datos$Cartera
+datos$P60_P<-datos$P60/datos$Cartera
+datos$P90_P<-datos$P90/datos$Cartera
+datos$P120_P<-datos$P120/datos$Cartera
+datos$P150_P<-datos$P150/datos$Cartera
+datos$P60_m<-datos$P60+datos$P90+datos$P120+datos$P120+datos$P150
+datos$Curren<-datos$P_1_14+datos$P_15_29
+datos$P30<-datos$P_30_44+datos$P_45_59
+
+
+#Nombre de las variables obtenidas para su
+#Descripción
+names(datos)
+
+#Encabezado de la tabla para su correcta interpretación
+head(datos[,1:5], n=2)
+
+#Se descartan variables de identificación
+#para análisis preliminar y se toman
+#las variables más relevantes
+
+x<-datos[-c(1:3, 6:15, 20:25, 33:34, 38:48)]
+x<-x[-c(1,3:4,6:13, 15:16)]
+library(dplyr)
+dim(filter(x, P60_m == 0))
+summary(x)
+cor(x)
+
+hist(x$Atraso_promedio)
+dim(filter(x, Atraso_promedio == -1))
+
+names(x)
+
+x1<-data.frame(x$ODV+20, x$Ciclo_promedio+20, x$Antiguedad+20, 
+               x$P60_m+20, x$Curren+20, x$P30+20)
+
+names(x1)<-names(x)
+
+#Se toma el logarítmo natural de las variables
+#con el fin de detectar otras correlaciones
+x_ln<-log(x1)
+
+
+
+#Como es posible observar, existen ciertas inconsistencias
+#Derivadas de la operación ln teniendo datos en cero
+summary(x_ln)
+cor(x_ln)
+
+#install.packages("GGally")
+library(GGally)
+library(ggplot2)
+
+ggpairs(x_ln)
+
+
+##############CLUSTERS POR K-MEANS##################3
+#Clusters Método 1
+library(factoextra)
+fviz_nbclust(x = x_ln, FUNcluster = kmeans, method = "wss", 
+             k.max = 15, diss = get_dist(x_ln, method = "euclidean"), 
+             nstart = 50) #Arroja 5-8 clusters
+######Clusters método 2
+
+calcular_totwithinss <- function(n_clusters, datos, iter.max=1000, 
+                                 nstart=50){
+  cluster_kmeans <- kmeans(centers = n_clusters, x = datos, 
+                           iter.max = iter.max, nstart = nstart)
+  return(cluster_kmeans$tot.withinss)
+}
+
+# Se aplica esta función con para diferentes valores de k
+library(tidyverse)
+total_withinss <- map_dbl(.x = 1:15,
+                          .f = calcular_totwithinss,
+                          datos = x_ln)
+total_withinss
+
+data.frame(n_clusters = 1:15, suma_cuadrados_internos = total_withinss) %>%
+  ggplot(aes(x = n_clusters, y = suma_cuadrados_internos)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 1:15) +
+  labs(title = "Evolución de la suma total de cuadrados intra-cluster") +
+  theme_bw() #Arroja 5-8 clusters
+
+#Se manejarán 5 clusters tentativamente, representación gráfica:
+library(tidyverse)
+library(ggpubr)
+
+km_clusters <- kmeans(x = x_ln, centers = 5, nstart = 50)
+x_ln <- x_ln %>% mutate(cluster = km_clusters$cluster)
+p2 <- ggplot(data = x_ln, aes(ODV, Ciclo_promedio, 
+                              color = as.factor(cluster))) +
+  geom_point(size = 3) +
+  labs(title = "Kmeans") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+
+ggplot(x_ln, aes(ODV, Ciclo_promedio, 
+              color = as.factor(cluster))) + geom_point()
+
+ggplot(x_ln, aes(Antiguedad, Ciclo_promedio, 
+                 color = as.factor(cluster))) + geom_point()
+
+datos <- datos %>% mutate(cluster = km_clusters$cluster)
+
+ggplot(datos, aes(ODV, Ingresos, 
+                 color = as.factor(cluster))) + geom_point()
+
+################CLUSTERS POR K-MEDOIDS############
+#Se emplea distancia manhattan para brindar nueva perspectiva
+library(cluster)
+library(factoextra)
+x_ln<-data.frame(x_ln[1:6])
+fviz_nbclust(x = x_ln, FUNcluster = pam, method = "wss", k.max = 15,
+             diss = dist(x_ln, method = "manhattan"))
+
+pam_clusters <- pam(x = x_ln, k = 4, metric = "manhattan")
+pam_clusters
+
+x_ln$cluster<-pam_clusters$clustering
+
+ggplot(x_ln, aes(ODV, Ciclo_promedio, 
+                 color = as.factor(cluster))) + geom_point()
+
+
+datos$cluster<-pam_clusters$clustering
+
+ggplot(datos, aes(ODV, Ingresos, 
+                  color = as.factor(cluster))) + geom_point()
