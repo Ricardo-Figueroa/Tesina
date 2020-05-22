@@ -1,3 +1,8 @@
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(dplyr)
+
 #Se importan los datos en bruto
 datos<-read.csv(file.choose())
 
@@ -27,20 +32,28 @@ head(datos[,1:5], n=2)
 #para análisis preliminar y se toman
 #las variables más relevantes
 
-x<-datos[-c(1:3, 6:15, 20:25, 33:34, 38:48)]
-x<-x[-c(1,3:4,6:13, 15:16)]
+x<-filter(datos, Activo == 1)
+x<-datos[-c(1:4, 6:15, 19:34, 36:39, 42:51)]
+x<-x[-c(2,3,6)]
+#x<-x[-c(1,3:4,6:13, 15:16)]
 library(dplyr)
 dim(filter(x, P60_m == 0))
 summary(x)
 cor(x)
+names(x)
+
+
+library(ggplot2)
+ggplot(x, aes(Intereses, Cobrado, 
+              color = Tasa_prom)) + geom_point()
 
 hist(x$Atraso_promedio)
 dim(filter(x, Atraso_promedio == -1))
 
-names(x)
+
 
 x1<-data.frame(x$ODV+20, x$Ciclo_promedio+20, x$Antiguedad+20, 
-               x$P60_m+20, x$Curren+20, x$P30+20)
+               x$P60_m+20, x$Curren+20, x$P30+20, x$Tasa_prom+20)
 
 names(x1)<-names(x)
 
@@ -98,12 +111,12 @@ library(ggpubr)
 
 km_clusters <- kmeans(x = x_ln, centers = 5, nstart = 50)
 x_ln <- x_ln %>% mutate(cluster = km_clusters$cluster)
-p2 <- ggplot(data = x_ln, aes(ODV, Ciclo_promedio, 
-                              color = as.factor(cluster))) +
-  geom_point(size = 3) +
-  labs(title = "Kmeans") +
-  theme_bw() +
-  theme(legend.position = "none")
+#p2 <- ggplot(data = x_ln, aes(ODV, Ciclo_promedio, 
+                              #color = as.factor(cluster))) +
+  #geom_point(size = 3) +
+  #labs(title = "Kmeans") +
+  #theme_bw() +
+  #theme(legend.position = "none")
 
 
 ggplot(x_ln, aes(ODV, Ciclo_promedio, 
@@ -112,21 +125,47 @@ ggplot(x_ln, aes(ODV, Ciclo_promedio,
 ggplot(x_ln, aes(Antiguedad, Ciclo_promedio, 
                  color = as.factor(cluster))) + geom_point()
 
-datos <- datos %>% mutate(cluster = km_clusters$cluster)
-
-ggplot(datos, aes(ODV, Ingresos, 
+ggplot(x_ln, aes(ODV, Tasa_prom, 
                  color = as.factor(cluster))) + geom_point()
+
+#datos <- datos %>% mutate(cluster = km_clusters$cluster)
+
+#ggplot(datos, aes(ODV, Ingresos, 
+                 #color = as.factor(cluster))) + geom_point()
 
 ################CLUSTERS POR K-MEDOIDS############
 #Se emplea distancia manhattan para brindar nueva perspectiva
 library(cluster)
 library(factoextra)
 x_ln<-data.frame(x_ln[1:6])
-fviz_nbclust(x = x_ln, FUNcluster = pam, method = "wss", k.max = 15,
-             diss = dist(x_ln, method = "manhattan"))
 
-pam_clusters <- pam(x = x_ln, k = 4, metric = "manhattan")
-pam_clusters
+#Visualización método 1
+fviz_nbclust(x = x_ln, FUNcluster = pam, method = "wss", k.max = 15,
+             diss = dist(x_ln, method = "euclidean"))
+#Visualización método 2
+calcular_suma_dif_interna <- function(n_clusters, datos, distancia = "euclidean"){
+cluster_pam <- cluster::pam(x = datos, k = n_clusters, metric = distancia)
+return(cluster_pam$objective["swap"])
+}
+
+# Se aplica esta función con para diferentes valores de k
+suma_dif_interna <- map_dbl(.x = 1:15,
+                            .f = calcular_suma_dif_interna,
+                            datos = x_ln)
+data.frame(n_clusters = 1:15, suma_dif_interna = suma_dif_interna) %>%
+  ggplot(aes(x = n_clusters, y = suma_dif_interna)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 1:15) +
+  labs(title = "Evolución de la suma total de diferencias intra-cluster") +
+  theme_bw()####7 clusters
+
+
+#Creación de clusters
+x_ln<-x_ln[1:7]
+library(cluster)
+pam_clusters <- pam(x = x_ln, k = 7, metric = "euclidean")
+#pam_clusters
 
 x_ln$cluster<-pam_clusters$clustering
 
@@ -138,3 +177,93 @@ datos$cluster<-pam_clusters$clustering
 
 ggplot(datos, aes(ODV, Ingresos, 
                   color = as.factor(cluster))) + geom_point()
+
+
+#Clusters CLARA
+x_ln<-x_ln[1:8]
+library(cluster)
+library(factoextra)
+fviz_nbclust(x = x_ln, FUNcluster = clara, method = "wss", k.max = 15,
+             diss = dist(x_ln, method = "euclidean"))
+#Se observan 7 clusters
+clara_clusters <- clara(x = x_ln, k = 7, metric = "euclidean", stand = FALSE,
+                        samples = 50, pamLike = TRUE)
+
+x_ln$cluster<-clara_clusters$clustering
+ggplot(x_ln, aes(ODV, Tasa_prom, 
+                  color = as.factor(cluster))) + geom_point()
+
+#########CLUSTERS JERÁRQUICOS######
+x_ln<-x_ln[1:7]
+# Matriz de distancias euclídeas
+mat_dist <- dist(x = x_ln, method = "euclidean")
+# Dendrogramas con linkage complete y average
+hc_euclidea_complete <- hclust(d = mat_dist, method = "complete")
+hc_euclidea_average  <- hclust(d = mat_dist, method = "average")
+#Correlaciones con distancias 
+#cophenetic del dendrograma (altura de los nodos)
+cor(x = mat_dist, cophenetic(hc_euclidea_complete))
+cor(x = mat_dist, cophenetic(hc_euclidea_average))
+
+hc_euclidea_completo <- hclust(d = dist(x = x_ln, method = "euclidean"),
+                               method = "complete")
+
+fviz_dend(x = hc_euclidea_completo, k = 2, cex = 0.6) +
+  geom_hline(yintercept = 5.5, linetype = "dashed") +
+  labs(title = "Herarchical clustering",
+       subtitle = "Distancia euclídea, Lincage complete, K=2")
+
+fviz_dend(x = hc_euclidea_completo, k = 4, cex = 0.6) +
+  geom_hline(yintercept = 3.5, linetype = "dashed") +
+  labs(title = "Herarchical clustering",
+       subtitle = "Distancia euclídea, Lincage complete, K=4")
+
+####Método divisivo####
+matriz_distancias <- dist(x = datos$Intereses, method = "euclidean")
+hc_diana <- diana(x = matriz_distancias, diss = TRUE, stand = FALSE)
+
+fviz_dend(x = hc_diana, cex = 0.5) +
+  labs(title = "Hierarchical clustering divisivo",
+       subtitle = "Distancia euclídea")
+
+
+##############CLUSTERS POR K-MEANS PARA INTERESES##################
+#Clusters Método 1
+library(factoextra)
+Int<-data.frame(datos[,16])
+
+
+fviz_nbclust(x = Int, FUNcluster = kmeans, method = "wss", 
+             k.max = 15, diss = get_dist(x_ln, method = "euclidean"), 
+             nstart = 50) #Arroja 7 clusters
+
+
+#Se manejarán 7 clusters tentativamente, representación gráfica:
+library(tidyverse)
+library(ggpubr)
+
+km_clusters <- kmeans(x = Int, centers = 7, nstart = 50)
+Int <- Int %>% mutate(cluster = km_clusters$cluster)
+#p2 <- ggplot(data = x_ln, aes(ODV, Ciclo_promedio, 
+#color = as.factor(cluster))) +
+#geom_point(size = 3) +
+#labs(title = "Kmeans") +
+#theme_bw() +
+#theme(legend.position = "none")
+names(Int)<-c("Intereses", "Cluster")
+
+ggplot(Int, aes(Intereses, Cluster, 
+                 color = as.factor(Cluster))) + geom_point()
+
+prop<-data.frame(1:7, rep(0,7))
+names(prop)<-c("Cluster", "Proporcion")
+
+library(tidyverse)
+library(ggpubr)
+library(dplyr)
+
+for (i in 1:7) {
+  prop[i,2]<-(sum(filter(Int, Cluster == i)[2])/i)/length(Int$Cluster)
+}
+
+sum(prop$Proporcion)
