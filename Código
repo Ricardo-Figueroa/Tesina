@@ -267,3 +267,232 @@ for (i in 1:7) {
 }
 
 sum(prop$Proporcion)
+
+################ANÁLISIS DE COMPONENTES PRINCIPALES######################
+names(datos)
+x_pca<-datos[-c(1:3, 35:39)]
+names(x_pca)
+
+#Se aplica función prcomp, se estandarizan por defecto las variables
+pca<-prcomp(x_pca, scale = TRUE)
+
+names(pca)
+#Media y sd de cada variable con escala original
+pca$center
+pca$scale
+#loadings para cada componente (eigenvector), número máximo de componentes
+#es min(obs-1, variables) en este caso deberóa ser 51
+pca$rotation
+#Valor de las componentes principales para cada observación (8179)
+head(pca$x)
+dim(pca$x)
+
+#Varianza explicada por cada componente
+library(ggplot2)
+pca$sdev^2
+#Proporción de la varianza otal explicada por cada componente
+prop_varianza <- pca$sdev^2 / sum(pca$sdev^2)
+prop_varianza
+ggplot(data = data.frame(prop_varianza, pc = 1:46),
+      aes(x = pc, y = prop_varianza)) +
+  geom_col(width = 0.3) +
+  scale_y_continuous(limits = c(0,1)) +
+  theme_bw() +
+  labs(x = "Componente principal",
+       y = "Prop. de varianza explicada")+
+  ggtitle("%Variaza descrita por componente, variables totales")
+#Proporción de la varianza acumulada para brindar un criterio sobre
+#el número óptimo de componentes principales
+prop_varianza_acum <- cumsum(prop_varianza)
+prop_varianza_acum
+
+ggplot(data = data.frame(prop_varianza_acum, pc = 1:46), 
+       aes(x = pc, y = prop_varianza_acum, group = 1)) +
+  geom_point() +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Componente principal",
+       y = "Prop. varianza explicada acumulada") + 
+  ggtitle("Varianza acumulada por componente variables totales")
+  
+
+
+#Se realiza el mismo análisis con el vector de variabkes reducidas
+library(ggplot2)
+names(x)
+pca<-prcomp(x, scale = TRUE)
+
+#Proporción de la varianza otal explicada por cada componente
+prop_varianza <- pca$sdev^2 / sum(pca$sdev^2)
+prop_varianza
+ggplot(data = data.frame(prop_varianza, pc = 1:7),
+       aes(x = pc, y = prop_varianza)) +
+  geom_col(width = 0.3) +
+  scale_y_continuous(limits = c(0,1)) +
+  theme_bw() +
+  labs(x = "Componente principal",
+       y = "Prop. de varianza explicada")+
+ggtitle("Variaza descrita por componente, variables reducidas")
+#Proporción de la varianza acumulada para brindar un criterio sobre
+#el número óptimo de componentes principales
+prop_varianza_acum <- cumsum(prop_varianza)
+prop_varianza_acum
+
+ggplot(data = data.frame(prop_varianza_acum, pc = 1:7),
+       aes(x = pc, y = prop_varianza_acum, group = 1)) +
+  geom_point() +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Componente principal",
+       y = "Prop. varianza explicada acumulada")+
+  ggtitle("Varianza acumulada, variables reducidas")
+
+#Se procede a analizar clusters con estas cinco variables arrojadas
+
+cp<-data.frame(pca$x[,1:5])
+summary(cp)
+library(GGally)
+library(ggplot2)
+
+ggpairs(cp) #Se observan distribuciones más "Gaussianas" y con
+#prácticamente nula correlación entre ellas, se procede a clusterizar
+
+
+
+##############CLUSTERS POR K-MEANS##################3
+#Clusters Método 1
+library(factoextra)
+fviz_nbclust(x = cp, FUNcluster = kmeans, method = "wss", 
+             k.max = 15, diss = get_dist(cp, method = "euclidean"), 
+             nstart = 50) 
+
+
+library(tidyverse)
+library(ggpubr)
+
+km_clusters <- kmeans(x = cp, centers = 7, nstart = 50)
+cp <- cp %>% mutate(cluster = km_clusters$cluster)
+
+#Ya son más visibles los clusters bajo estas dimensiones
+ggplot(cp, aes(PC1, PC4, 
+    color = as.factor(cluster))) + geom_point() + 
+  ggtitle("Clusters para cp variables reducidas")
+
+ggplot(cp, aes(PC2, PC3, 
+                 color = as.factor(cluster))) + geom_point()+ 
+  ggtitle("Clusters para cp variables reducidas")
+
+ggplot(cp, aes(PC3, PC4, 
+                 color = as.factor(cluster))) + geom_point()+ 
+  ggtitle("Clusters para cp variables reducidas")
+
+ggplot(cp, aes(PC4, PC5, 
+               color = as.factor(cluster))) + geom_point()+ 
+  ggtitle("Clusters para cp variables reducidas")
+
+
+#Se analizan clusters obtenidos para la variable de intereses
+
+p<-data.frame(datos$Intereses, cp$cluster, 1:8179)
+names(p)<-c("Intereses", "Cluster", "Observacion")
+ggplot(p, aes(Observacion, Intereses, 
+               color = as.factor(Cluster))) + geom_point() +
+  ggtitle("Clusters para cp aplicados a Intereses cobrados")
+#Si bien ya son más visibles los clusters, no se aprecían aún
+#estratos bien definidos
+
+
+
+#################################TSNE###############################
+
+library(readr)
+library(dplyr)
+library(tsne)
+library(ggplot2)
+
+# La función tsne() recibe como argumento una matriz, no un data.frame
+x_tsne <- data.matrix(filter(datos, mes > 201912)[-c(1:3, 35:39)])
+
+#Dados los recursos computacionales se limita a 100 iteraciones
+#Y se manejan solo datos de 2020
+#k=dimensiones deseadas, max_iter=Ireaciones limite
+set.seed(321)
+tsne_reduction <- tsne(x_tsne, k = 2, max_iter = 500)
+
+#tsne arrojará estas 2 variables, se procede a graficarlas 
+#para analizar el nuevo espacio y se añade la etiqueta de nivel de 
+#Intereses para ver como se relacionan con ella
+
+niveles<-data.frame(datos$mes, datos$Intereses)
+names(niveles)<-c("mes", "Intereses")
+niveles$Nivel<-ifelse(niveles$Intereses < 110500, 1,
+                      ifelse(niveles$Intereses < 184500, 2, 3))
+
+resultados <- as.data.frame(tsne_reduction)
+colnames(resultados) <- c("dim_1", "dim_2")
+resultados$nivel <- as.character(filter(niveles, mes > 201912)[,3])
+ggplot(data = resultados, aes(x = dim_1, y = dim_2)) +
+  geom_point(aes(color = nivel)) + 
+  theme_bw() + ggtitle("Espacio obtenido con pca con datos 2020")
+
+#Se brinda la aproximación de Barnes-Hut del método con rtsne 
+#para poder trabajar con todos los datos
+
+#install.packages("Rtsne")
+library(Rtsne)
+library(ggplot2)
+
+x_rtsne <- data.matrix(datos[-c(1:3,35:39)])
+
+set.seed(2001)
+tsne <- Rtsne(X = x_rtsne, is_distance = FALSE, dims = 2,
+              check_duplicates = FALSE, max_iter = 1000)
+
+#Se guardan los resultados en la variable Y
+head(tsne$Y)
+
+#Se vuelve a trabajar con variable de nivel de intereses para
+#analizar su relación con el espacio obtenido
+resultados <- as.data.frame(tsne$Y)
+colnames(resultados) <- c("dim_1", "dim_2")
+resultados$nivel <- as.character(niveles$Nivel)
+ggplot(data = resultados, aes(x = dim_1, y = dim_2)) +
+  geom_point(aes(color = nivel)) + 
+  theme_bw() + ggtitle("Espacio obtenido con rtsne, total de datos, 2 dim")
+#Si bien se observan estratos más definidos, posiblemente 
+#???una tercera variable pueda brindar una mejor diferenciación
+
+
+#Mismo ejercicio para 3 variables
+
+library(scatterplot3d)
+library(RColorBrewer)
+
+x_rtsne3 <- data.matrix(datos[-c(1:3,35:39)])
+set.seed(2001)
+tsne <- Rtsne(X = x_rtsne3, is_distance = FALSE, dims = 3,
+              check_duplicates = FALSE, max_iter = 1000)
+
+resultados <- as.data.frame(tsne$Y)
+colnames(resultados) <- c("dim_1", "dim_2", "dim_3")
+resultados$nivel <- as.factor(niveles$Nivel)
+
+library(rgl)
+plot3d(resultados$dim_1, resultados$dim_2, resultados$dim_3, 
+       col = resultados$nivel, type = "s", radius = .5)
+play3d(spin3d(axis = c(0, 0, 1), rpm = 15), duration = 30)
+
+#plot3d(resultados$dim_1, resultados$dim_2, resultados$dim_3, 
+      # col = resultados$nivel, type = "s", radius = 1.5 )
+#####Gráfico inanimado########
+
+colores <- brewer.pal(n = 4, name = "Set3")
+colores <- colores[as.numeric(resultados$nivel)]
+scatterplot3d(x = resultados$dim_1,
+              y = resultados$dim_2,
+              z = resultados$dim_3,
+              pch = 20, color = colores, cex.lab = 0.8,
+              grid = TRUE, box = FALSE)
+legend("bottom", legend = levels(resultados$nivel),
+       col = colores, pch = 16, 
+       inset = -0.23, xpd = TRUE, horiz = TRUE)
